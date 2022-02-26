@@ -27,7 +27,7 @@ type user struct {
 	helper   helper.Helper
 }
 
-func NewCustomer(b builder.UserBuilder, p repository.PostgresQueryer, r repository.RedisQueryer, h helper.Helper) User {
+func NewUser(b builder.UserBuilder, p repository.PostgresQueryer, r repository.RedisQueryer, h helper.Helper) User {
 	return &user{
 		builder:  b,
 		postgres: p,
@@ -49,7 +49,7 @@ func (u *user) Login(ctx context.Context, user *models.RegisterUser) (*models.Au
 
 	defer res.Close()
 	if !res.Next() {
-		return nil, fmt.Errorf("login: customer not found")
+		return nil, fmt.Errorf("login: user not found")
 	}
 
 	var us models.User

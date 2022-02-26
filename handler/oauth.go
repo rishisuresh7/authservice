@@ -7,8 +7,6 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/gothic"
-	"github.com/markbates/goth/providers/apple"
-	"github.com/markbates/goth/providers/facebook"
 	"github.com/markbates/goth/providers/google"
 	"github.com/sirupsen/logrus"
 
@@ -19,17 +17,11 @@ import (
 
 func InitProviders(f factory.Factory) {
 	providers := make([]goth.Provider, 0)
-	callbackUrl := "http://localhost:9003/customer/callback"
+	callbackUrl := "http://localhost:9003/user/callback"
 	for _, provider := range f.Config().ProvidersConf {
 		switch provider.Name {
 		case "google":
 			pr := google.New(provider.ClientId, provider.ClientSecret, callbackUrl, "email", "profile")
-			providers = append(providers, pr)
-		case "facebook":
-			pr := facebook.New(provider.ClientId, provider.ClientSecret, callbackUrl)
-			providers = append(providers, pr)
-		case "apple":
-			pr := apple.New(provider.ClientId, provider.ClientSecret, callbackUrl, nil)
 			providers = append(providers, pr)
 		}
 	}

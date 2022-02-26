@@ -64,7 +64,7 @@ func (f *factory) RedisQueryer() repository.RedisQueryer {
 }
 
 func (f *factory) User() user.User {
-	return user.NewCustomer(builder.NewUserBuilder(), f.PostgresQueryer(), f.RedisQueryer(), f.Helper())
+	return user.NewUser(builder.NewUserBuilder(), f.PostgresQueryer(), f.RedisQueryer(), f.Helper())
 }
 
 
