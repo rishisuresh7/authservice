@@ -78,7 +78,6 @@ func OAuthCallback(f factory.Factory, l *logrus.Logger) http.HandlerFunc {
 			Email:      &gothUser.Email,
 			LastName:   &gothUser.LastName,
 			FirstName:  &gothUser.FirstName,
-			ProfileURL: &gothUser.AvatarURL,
 		}
 
 		us := f.User()

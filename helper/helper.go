@@ -30,6 +30,7 @@ type Helper interface {
 	DecodeJWT(token string) (map[string]interface{}, error)
 	EncodeClaims(userClaims map[string]interface{}) (string, error)
 	DecodeToken(data string) (*models.RefreshMeta, error)
+	NewId() string
 }
 
 type helper struct {
@@ -206,4 +207,9 @@ func (h *helper) decrypt(key string, text []byte) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+func (h *helper) NewId() string {
+	uid, _ := uuid.NewV4()
+	return uid.String()
 }

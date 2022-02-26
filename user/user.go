@@ -17,11 +17,11 @@ type User interface {
 	Verify(ctx context.Context, user *models.RegisterUser) (bool, error)
 	Login(ctx context.Context, user *models.RegisterUser) (*models.AuthUser, error)
 	IsDeactivated(ctx context.Context, user *models.RegisterUser) (bool, error)
-	OAuthLogin(ctx context.Context, user models.User) (* models.AuthUser, error)
+	OAuthLogin(ctx context.Context, user models.User) (*models.AuthUser, error)
 }
 
 type user struct {
-	builder builder.UserBuilder
+	builder  builder.UserBuilder
 	postgres repository.PostgresQueryer
 	redis    repository.RedisQueryer
 	helper   helper.Helper
@@ -55,11 +55,11 @@ func (u *user) Login(ctx context.Context, user *models.RegisterUser) (*models.Au
 	var us models.User
 	err = res.Scan(&us)
 	if err != nil {
-		return nil, fmt.Errorf("login: unable to decode customer: %s", err)
+		return nil, fmt.Errorf("login: unable to decode user: %s", err)
 	}
 
 	claims := map[string]interface{}{
-		"id":        us.Id,
+		"id":        *us.Id,
 		"firstName": us.FirstName,
 		"userType":  constant.User,
 	}
@@ -89,7 +89,7 @@ func (u *user) Login(ctx context.Context, user *models.RegisterUser) (*models.Au
 
 func (u *user) Register(ctx context.Context, phone string) (string, error) {
 	query := u.builder.Register()
-	_, err := u.postgres.Exec(ctx, query, phone)
+	_, err := u.postgres.Exec(ctx, query, phone, u.helper.NewId())
 	if err != nil {
 		if !strings.Contains(err.Error(), "duplicate key") {
 			return "", fmt.Errorf("register: unable to save data: %s", err)
@@ -117,7 +117,7 @@ func (u *user) Verify(ctx context.Context, user *models.RegisterUser) (bool, err
 	return false, nil
 }
 
-func (u *user) OAuthLogin(ctx context.Context, user models.User) (* models.AuthUser, error) {
+func (u *user) OAuthLogin(ctx context.Context, user models.User) (*models.AuthUser, error) {
 	query := u.builder.Login("email")
 	res, err := u.postgres.QueryScan(ctx, query, user.Email)
 	if err != nil {
@@ -126,7 +126,7 @@ func (u *user) OAuthLogin(ctx context.Context, user models.User) (* models.AuthU
 
 	if !res.Next() {
 		query := u.builder.OAuthRegister()
-		res, err := u.postgres.QueryScan(ctx, query, user.Email, user.FirstName, user.LastName, user.ProfileURL)
+		res, err := u.postgres.QueryScan(ctx, query, user.Email, user.FirstName, user.LastName)
 		if err != nil {
 			return nil, fmt.Errorf("oAuthLogin: unable to register user: %s", err)
 		}

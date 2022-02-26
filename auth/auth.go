@@ -13,9 +13,9 @@ import (
 
 type Authorizer interface {
 	ValidateRefreshToken(ctx context.Context, token string) (map[string]interface{}, error)
-	DecodeJWT(token string) (int64, error)
+	DecodeJWT(token string) (string, error)
 	GetJWT(ctx context.Context, claims map[string]interface{}) (string, error)
-	InvalidateTokens(ctx context.Context, userId int64, userType string) error
+	InvalidateTokens(ctx context.Context, userId string, userType string) error
 }
 
 type authorize struct {
@@ -40,7 +40,7 @@ func (a *authorize) ValidateRefreshToken(ctx context.Context, token string) (map
 		return nil, fmt.Errorf("validateRefreshToken: invalid token: token expired")
 	}
 
-	userKey := fmt.Sprintf("%s-%.0f", refreshMeta.UserClaims["userType"], refreshMeta.UserClaims["id"].(float64))
+	userKey := fmt.Sprintf("%s-%s", refreshMeta.UserClaims["userType"], refreshMeta.UserClaims["id"].(string))
 	bytes, err := a.redis.GetBytes(ctx, userKey)
 	if err != nil {
 		return nil, fmt.Errorf("validateRefreshToken: unable to get data from redis: %s", err)
@@ -61,7 +61,7 @@ func (a *authorize) GetJWT(ctx context.Context, claims map[string]interface{}) (
 		return "", fmt.Errorf("getJWT: unable to create JWT: %s", err)
 	}
 
-	userKey := fmt.Sprintf("%s-%.0f", claims["userType"], claims["id"].(float64))
+	userKey := fmt.Sprintf("%s-%s", claims["userType"], claims["id"].(string))
 	bytes, err := a.redis.GetBytes(ctx, userKey)
 	if err != nil {
 		return "", fmt.Errorf("getJWT: unable to get data from redis: %s", err)
@@ -78,8 +78,8 @@ func (a *authorize) GetJWT(ctx context.Context, claims map[string]interface{}) (
 	return jwt, err
 }
 
-func (a *authorize) InvalidateTokens(ctx context.Context, userId int64, userType string) error {
-	userKey := fmt.Sprintf("%s-%d", userType, userId)
+func (a *authorize) InvalidateTokens(ctx context.Context, userId string, userType string) error {
+	userKey := fmt.Sprintf("%s-%s", userType, userId)
 	bytes, err := a.redis.GetBytes(ctx, userKey)
 	if err != nil {
 		return fmt.Errorf("invalidateTokens: unable to get data from redis: %s", err)
@@ -97,23 +97,23 @@ func (a *authorize) InvalidateTokens(ctx context.Context, userId int64, userType
 	return nil
 }
 
-func (a *authorize) DecodeJWT(token string) (int64, error) {
+func (a *authorize) DecodeJWT(token string) (string, error) {
 	tokenString := strings.Split(token, "Bearer ")
 	if len(tokenString) != 2 {
-		return -1, fmt.Errorf("decodeJWT: invalid token format")
+		return "", fmt.Errorf("decodeJWT: invalid token format")
 	}
 
 	claims, err := a.helper.DecodeJWT(tokenString[1])
 	if err != nil {
 		if !strings.Contains(err.Error(), "Token is expired") {
-			return -1, fmt.Errorf("decodeJWT: unable to decode JWT: %s", err)
+			return "", fmt.Errorf("decodeJWT: unable to decode JWT: %s", err)
 		}
 	}
 
-	userId, ok := claims["id"].(float64)
+	userId, ok := claims["id"].(string)
 	if !ok {
-		return -1, fmt.Errorf("decodeJWT: invalid userId")
+		return "", fmt.Errorf("decodeJWT: invalid userId")
 	}
 
-	return int64(userId), nil
+	return userId, nil
 }
