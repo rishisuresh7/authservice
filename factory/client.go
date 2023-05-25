@@ -21,7 +21,7 @@ func (f *factory) pgDriver() (*pg.Pool, error) {
 			f.config.PgConfig.Host,
 			f.config.PgConfig.Port,
 			f.config.PgConfig.Database,
-			"authservice",
+			f.config.PgConfig.Database,
 		))
 		if confErr != nil {
 			err = confErr

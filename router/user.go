@@ -9,10 +9,19 @@ import (
 )
 
 func (r *router) userRoutes(f factory.Factory, l *logrus.Logger) {
-	r.HandleFunc("/user/login", handler.RegisterUser(f, l)).Methods(constant.POST)
-	r.HandleFunc("/user/login/verify", handler.LoginUser(f, l)).Methods(constant.POST)
-	r.HandleFunc("/user/logout", handler.LogoutUser(f, l, constant.User)).Methods(constant.GET)
-	r.HandleFunc("/user/refresh", handler.RefreshToken(f, l)).Methods(constant.POST)
+	tokenValidator := f.TokenValidator()
+	r.HandleFunc("/users", handler.RegisterUser(f, l)).Methods(constant.POST)
+	r.HandleFunc("/users/auth", handler.LoginUser(f, l)).Methods(constant.POST)
+	r.HandleFunc("/users/logout", handler.LogoutUser(f, l, false)).Methods(constant.GET)
+	r.HandleFunc("/users/clear", handler.LogoutUser(f, l, true)).Methods(constant.GET)
+	r.HandleFunc("/users/refresh", handler.RefreshToken(f, l)).Methods(constant.POST)
+	r.HandleFunc("/users/auth/otp", handler.VerifyOTP(f, l, true)).Methods(constant.POST)
+	r.HandleFunc("/users/auth/verify", handler.VerifyToken(f, l)).Methods(constant.GET)
+	r.HandleFunc("/users/reset", handler.ResetPassword(f, l)).Methods(constant.POST)
+	r.HandleFunc("/users/reset/verify", handler.VerifyOTP(f, l, false)).Methods(constant.POST)
+	r.HandleFunc("/users/reset/change", handler.ChangePassword(f, l, true)).Methods(constant.POST)
+	r.HandleFunc("/users/{userId}/change", tokenValidator.ValidateToken(handler.ChangePassword(f, l, false))).Methods(constant.POST)
+	r.HandleFunc("/users/{userId}", tokenValidator.ValidateToken(handler.UpdateUser(f, l))).Methods(constant.PATCH)
 
 	// OAuth routes
 	handler.InitProviders(f)

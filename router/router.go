@@ -5,8 +5,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"authservice/constant"
-	"authservice/handler"
 	"authservice/factory"
+	"authservice/handler"
 )
 
 func NewCustomRouter(f factory.Factory, l *logrus.Logger) *router {
@@ -25,4 +25,5 @@ type router struct {
 func (r *router) registerRoutes(f factory.Factory, l *logrus.Logger) {
 	r.HandleFunc("/health", handler.Health).Methods(constant.GET)
 	r.userRoutes(f, l)
+	r.addressRoutes(f, l)
 }

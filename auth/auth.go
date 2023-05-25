@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"authservice/helper"
@@ -13,9 +12,9 @@ import (
 
 type Authorizer interface {
 	ValidateRefreshToken(ctx context.Context, token string) (map[string]interface{}, error)
-	DecodeJWT(token string) (string, error)
-	GetJWT(ctx context.Context, claims map[string]interface{}) (string, error)
-	InvalidateTokens(ctx context.Context, userId string, userType string) error
+	ValidateBearerToken(ctx context.Context, token string) (map[string]interface{}, error)
+	GetJWT(ctx context.Context, claims map[string]interface{}, oldBearerToken, refreshToken string) (string, error)
+	InvalidateTokens(ctx context.Context, userId, bearerToken string, clearAllTokens bool) error
 }
 
 type authorize struct {
@@ -40,80 +39,97 @@ func (a *authorize) ValidateRefreshToken(ctx context.Context, token string) (map
 		return nil, fmt.Errorf("validateRefreshToken: invalid token: token expired")
 	}
 
-	userKey := fmt.Sprintf("%s-%s", refreshMeta.UserClaims["userType"], refreshMeta.UserClaims["id"].(string))
-	bytes, err := a.redis.GetBytes(ctx, userKey)
+	userMeta, err := a.GetActiveTokens(ctx, fmt.Sprintf("%s", refreshMeta.UserClaims["id"]))
 	if err != nil {
-		return nil, fmt.Errorf("validateRefreshToken: unable to get data from redis: %s", err)
+		return nil, fmt.Errorf("validateRefreshToken: %s", err)
 	}
 
-	var userMeta models.UserMeta
-	a.helper.UnMarshal(bytes, &userMeta)
-	if userMeta.RefreshToken != token {
-		return nil, fmt.Errorf("validateRefreshToken: expired refresh token")
+	if !userMeta.ContainsRefreshToken(token) {
+		return nil, fmt.Errorf("validateRefreshToken: not a valid token")
 	}
 
 	return refreshMeta.UserClaims, err
 }
 
-func (a *authorize) GetJWT(ctx context.Context, claims map[string]interface{}) (string, error) {
-	jwt, err := a.helper.GetJWT(claims)
+func (a *authorize) ValidateBearerToken(ctx context.Context, token string) (map[string]interface{}, error) {
+	claims, err := a.helper.DecodeJWT(token)
 	if err != nil {
-		return "", fmt.Errorf("getJWT: unable to create JWT: %s", err)
+		return nil, fmt.Errorf("invalid token: %s", err)
 	}
 
-	userKey := fmt.Sprintf("%s-%s", claims["userType"], claims["id"].(string))
-	bytes, err := a.redis.GetBytes(ctx, userKey)
+	userMeta, err := a.GetActiveTokens(ctx, claims["id"].(string))
 	if err != nil {
-		return "", fmt.Errorf("getJWT: unable to get data from redis: %s", err)
+		return nil, fmt.Errorf("validateBearerToken: %s", err)
 	}
 
-	var userMeta models.UserMeta
-	a.helper.UnMarshal(bytes, &userMeta)
-	userMeta.BearerToken = jwt
-	err = a.redis.Set(ctx, userKey, userMeta.GetBytes(), 0)
-	if err != nil {
-		return "", fmt.Errorf("getJWT: unable to set data to redis: %s", err)
+	if !userMeta.ContainsBearerToken(token) {
+		return nil, fmt.Errorf("validateBearerToken: invalid token, token was invalidated")
 	}
 
-	return jwt, err
+	return claims, nil
 }
 
-func (a *authorize) InvalidateTokens(ctx context.Context, userId string, userType string) error {
-	userKey := fmt.Sprintf("%s-%s", userType, userId)
-	bytes, err := a.redis.GetBytes(ctx, userKey)
+func (a *authorize) GetActiveTokens(ctx context.Context, userId string) (*models.UserMeta, error) {
+	userMetaBytes, err := a.redis.GetBytes(ctx, userId)
 	if err != nil {
-		return fmt.Errorf("invalidateTokens: unable to get data from redis: %s", err)
+		return nil, fmt.Errorf("getActiveTokens: unable to read token metadata")
 	}
 
 	var userMeta models.UserMeta
-	a.helper.UnMarshal(bytes, &userMeta)
-	userMeta.BearerToken = ""
-	userMeta.RefreshToken = ""
-	err = a.redis.Set(ctx, userKey, userMeta.GetBytes(), 0)
+	a.helper.UnMarshal(userMetaBytes, &userMeta)
+
+	return &userMeta, nil
+}
+
+func (a *authorize) UpdateActiveTokensWithNewBearerToken(ctx context.Context, userId, oldBearerToken, newBearerToken, refreshToken string) error {
+	userMeta, err := a.GetActiveTokens(ctx, userId)
 	if err != nil {
-		return fmt.Errorf("invalidateTokens: unable to set data to redis: %s", err)
+		return err
+	}
+
+	updated := userMeta.ReplaceBearerToken(oldBearerToken, newBearerToken, refreshToken)
+	if !updated {
+		return fmt.Errorf("no access/refresh token pair found")
+	}
+
+	err = a.redis.Set(ctx, userId, userMeta.GetBytes(), 0)
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func (a *authorize) DecodeJWT(token string) (string, error) {
-	tokenString := strings.Split(token, "Bearer ")
-	if len(tokenString) != 2 {
-		return "", fmt.Errorf("decodeJWT: invalid token format")
-	}
-
-	claims, err := a.helper.DecodeJWT(tokenString[1])
+func (a *authorize) GetJWT(ctx context.Context, claims map[string]interface{}, oldBearerToken, refreshToken string) (string, error) {
+	jwt, err := a.helper.GetJWT(claims)
 	if err != nil {
-		if !strings.Contains(err.Error(), "Token is expired") {
-			return "", fmt.Errorf("decodeJWT: unable to decode JWT: %s", err)
-		}
+		return "", fmt.Errorf("getJWT: unable to create JWT: %s", err)
 	}
 
-	userId, ok := claims["id"].(string)
-	if !ok {
-		return "", fmt.Errorf("decodeJWT: invalid userId")
+	err = a.UpdateActiveTokensWithNewBearerToken(ctx, claims["id"].(string), oldBearerToken, jwt, refreshToken)
+	if err != nil {
+		return "", fmt.Errorf("getJWT: %s", err)
 	}
 
-	return userId, nil
+	return jwt, nil
+}
+
+func (a *authorize) InvalidateTokens(ctx context.Context, userId, bearerToken string, clearAllTokens bool) error {
+	userMeta, err := a.GetActiveTokens(ctx, userId)
+	if err != nil {
+		return fmt.Errorf("invalidateTokens: %s", err)
+	}
+
+	if clearAllTokens {
+		userMeta.ClearAllTokens()
+	} else {
+		userMeta.ClearToken(bearerToken)
+	}
+
+	err = a.redis.Set(ctx, userId, userMeta.GetBytes(), 0)
+	if err != nil {
+		return fmt.Errorf("invalidateTokens: unable to set data to redis: %s", err)
+	}
+
+	return nil
 }

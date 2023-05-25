@@ -8,4 +8,9 @@ const (
 	DELETE = "DELETE"
 
 	User        = "user"
+
+	LoginEmail    = "email_password"
+	LoginPhone    = "phone_password"
+	LoginPhoneOTP = "phone_otp"
+	LoginInvalid  = "invalid"
 )

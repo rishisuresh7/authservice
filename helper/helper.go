@@ -6,12 +6,14 @@ import (
 	"crypto/cipher"
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	mr "math/rand"
+	"strings"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -26,10 +28,12 @@ type Helper interface {
 	UnMarshal(data []byte, dest interface{})
 	Marshal(src interface{}) []byte
 	SendOTP(ctx context.Context, phone string) (string, error)
+	SendEmail(ctx context.Context, to []string, message string) error
 	GetJWT(userClaims map[string]interface{}) (string, error)
 	DecodeJWT(token string) (map[string]interface{}, error)
 	EncodeClaims(userClaims map[string]interface{}) (string, error)
 	DecodeToken(data string) (*models.RefreshMeta, error)
+	Hash(input string) string
 	NewId() string
 }
 
@@ -60,25 +64,45 @@ func (h *helper) Marshal(src interface{}) []byte {
 }
 
 func (h *helper) SendOTP(ctx context.Context, phone string) (string, error) {
-	// key, otp := h.generateOTPKeyPair(6)
-	// message := fmt.Sprintf("%s is your NEERBI authentication code.", otp)
-	// go func() {
-	// 	_, err := h.aws.Publish(&sns.PublishInput{
-	// 		Message:     &message,
-	// 		PhoneNumber: &phone,
-	// 	})
-	// 	if err != nil {
-	// 		h.logger.Errorf("SendOTP: unable to publish OTP: %s", err)
-	// 	}
-	// }()
+	key, otp := h.generateOTPKeyPair(6)
+	sms := &models.SMS{
+		To:      []string{phone},
+		Message: fmt.Sprintf("%s is your POUSHAK authentication code.", otp),
+	}
+	err := h.redis.PushToChannel(ctx, &models.ChannelMessage{
+		Medium:       "SMS",
+		Type:         "OTP",
+		Notification: sms.GetBytes(),
+	})
+	if err != nil {
+		return "", fmt.Errorf("SendOTP: unable to publish OTP: %s", err)
+	}
 
-	// err := h.redis.Set(ctx, key, otp, 60*time.Second)
-	// if err != nil {
-	// 	return "", fmt.Errorf("sendOTP: unable to save OTP: %s", err)
-	// }
+	err = h.redis.Set(ctx, key, otp, 120*time.Second)
+	if err != nil {
+		return "", fmt.Errorf("sendOTP: unable to save OTP: %s", err)
+	}
 
-	// return key, nil
-	return "", nil
+	return key, nil
+}
+
+func (h *helper) SendEmail(ctx context.Context, to []string, message string) error {
+	const emailTemplate = "From: Poushak Care\r\nTo: %s\r\nSubject: Poushak OTP\r\n\r\n%s\r\n"
+	email := &models.Email{
+		To:      to,
+		From:    "poushak.care@gmail.com",
+		Message: []byte(fmt.Sprintf(emailTemplate, strings.Join(to, ","), message)),
+	}
+	err := h.redis.PushToChannel(ctx, &models.ChannelMessage{
+		Medium:       "EMAIL",
+		Type:         "OTP",
+		Notification: email.GetBytes(),
+	})
+	if err != nil {
+		return fmt.Errorf("SendEmail: unable to publish OTP: %s", err)
+	}
+
+	return nil
 }
 
 func (h *helper) generateOTPKeyPair(digits int) (string, string) {
@@ -102,7 +126,7 @@ func (h *helper) generateOTPKeyPair(digits int) (string, string) {
 func (h *helper) GetJWT(userClaims map[string]interface{}) (string, error) {
 	claims := jwt.MapClaims(userClaims)
 	claims["iat"] = time.Now().Unix()
-	claims["exp"] = time.Now().Add(time.Minute * 20).Unix()
+	claims["exp"] = time.Now().Add(time.Hour * 24 * 7).Unix()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
 	signedToken, err := token.SignedString([]byte(h.tokenSecret))
 	if err != nil {
@@ -112,7 +136,8 @@ func (h *helper) GetJWT(userClaims map[string]interface{}) (string, error) {
 	return fmt.Sprintf("Bearer %s", signedToken), nil
 }
 
-func (h *helper) DecodeJWT(token string) (map[string]interface{}, error) {
+func (h *helper) DecodeJWT(bearerToken string) (map[string]interface{}, error) {
+	token := strings.Split(bearerToken, "Bearer ")[1]
 	claims := jwt.MapClaims{}
 	decodedToken, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -207,6 +232,14 @@ func (h *helper) decrypt(key string, text []byte) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+func (h *helper) Hash(input string) string {
+	hasher := sha256.New()
+	hasher.Write([]byte(input))
+	res := hasher.Sum(nil)
+
+	return fmt.Sprintf("%x", res)
 }
 
 func (h *helper) NewId() string {

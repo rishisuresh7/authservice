@@ -25,6 +25,17 @@ func (s Success) Send(w http.ResponseWriter) error {
 	return nil
 }
 
+func (s Success) SendExists(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusAlreadyReported)
+	err := json.NewEncoder(w).Encode(s)
+	if err != nil {
+		return fmt.Errorf("Send: unable to encode to JSON: %s", err)
+	}
+
+	return nil
+}
+
 func (s Success) SendNoContent(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusNoContent)

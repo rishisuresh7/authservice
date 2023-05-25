@@ -8,10 +8,12 @@ import (
 	pg "github.com/jackc/pgx/v4/pgxpool"
 	"github.com/sirupsen/logrus"
 
+	"authservice/address"
 	"authservice/auth"
 	"authservice/builder"
 	"authservice/config"
 	"authservice/helper"
+	"authservice/middleware"
 	"authservice/repository"
 	"authservice/user"
 )
@@ -21,8 +23,10 @@ type Factory interface {
 	PostgresQueryer() repository.PostgresQueryer
 	RedisQueryer() repository.RedisQueryer
 	User() user.User
+	Address() address.Address
 	Helper() helper.Helper
 	Authorizer() auth.Authorizer
+	TokenValidator() *middleware.TokenValidator
 }
 
 type factory struct {
@@ -67,6 +71,9 @@ func (f *factory) User() user.User {
 	return user.NewUser(builder.NewUserBuilder(), f.PostgresQueryer(), f.RedisQueryer(), f.Helper())
 }
 
+func (f *factory) Address() address.Address {
+	return address.NewAddress(builder.NewAddressBuilder(), f.Helper(), f.PostgresQueryer())
+}
 
 func (f *factory) Helper() helper.Helper {
 	return helper.NewHelper(f.logger, f.RedisQueryer(), f.config.TokenSecret, f.config.RefreshSecret)
@@ -74,4 +81,8 @@ func (f *factory) Helper() helper.Helper {
 
 func (f *factory) Authorizer() auth.Authorizer {
 	return auth.NewAuthorizer(f.Helper(), f.RedisQueryer())
+}
+
+func (f *factory) TokenValidator() *middleware.TokenValidator {
+	return middleware.NewTokenValidator(f.logger, f.Authorizer())
 }
